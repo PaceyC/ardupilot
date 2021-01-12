@@ -1,4 +1,5 @@
 #include "AP_Mount_Backend.h"
+#if HAL_MOUNT_ENABLED
 #include <AP_AHRS/AP_AHRS.h>
 
 extern const AP_HAL::HAL& hal;
@@ -81,6 +82,13 @@ void AP_Mount_Backend::control(int32_t pitch_or_lat, int32_t roll_or_lon, int32_
                 Location::AltFrame::ABOVE_HOME
             };
             set_roi_target(target_location);
+            break;
+        }
+
+        case MAV_MOUNT_MODE_HOME_LOCATION: {
+            // set the target gps location
+            _state._roi_target = AP::ahrs().get_home();
+            _state._roi_target_set = true;
             break;
         }
 
@@ -208,3 +216,5 @@ bool AP_Mount_Backend::calc_angle_to_location(const struct Location &target, Vec
     }
     return true;
 }
+
+#endif // HAL_MOUNT_ENABLED

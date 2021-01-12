@@ -206,7 +206,7 @@ specs = [
             "AC_FENCE": ["AC_AVOID_ENABLED", "MODE_FOLLOW_ENABLED"],
             "PROXIMITY_ENABLED": ["AC_AVOID_ENABLED", "MODE_FOLLOW_ENABLED"],
             "AC_RALLY": ["AC_TERRAIN"],
-            "MODE_AUTO_ENABLED": ["AC_TERRAIN", "MODE_GUIDED"],
+            "MODE_AUTO_ENABLED": ["AC_TERRAIN", "MODE_GUIDED", "ADVANCED_FAILSAFE"],
             "MODE_RTL_ENABLED": ["MODE_AUTO_ENABLED", "AC_TERRAIN", "MODE_SMARTRTL_ENABLED"],
             "BEACON_ENABLED": ["AC_AVOID_ENABLED", "MODE_FOLLOW_ENABLED"],
             "MODE_CIRCLE_ENABLED": ["MODE_AUTO_ENABLED", "AC_TERRAIN"],
@@ -229,7 +229,7 @@ specs = [
             "AC_FENCE": ["AC_AVOID_ENABLED", "MODE_FOLLOW_ENABLED"],
             "PROXIMITY_ENABLED": ["AC_AVOID_ENABLED", "MODE_FOLLOW_ENABLED"],
             "AC_RALLY": ["AC_TERRAIN"],
-            "MODE_AUTO_ENABLED": ["AC_TERRAIN", "MODE_GUIDED"],
+            "MODE_AUTO_ENABLED": ["AC_TERRAIN", "MODE_GUIDED", "ADVANCED_FAILSAFE"],
             "MODE_RTL_ENABLED": ["MODE_AUTO_ENABLED", "AC_TERRAIN", "MODE_SMARTRTL_ENABLED"],
             "BEACON_ENABLED": ["AC_AVOID_ENABLED", "MODE_FOLLOW_ENABLED"],
             "MODE_CIRCLE_ENABLED": ["MODE_AUTO_ENABLED", "AC_TERRAIN"],
@@ -248,7 +248,7 @@ specs = [
         "reverse-deps": {
         },
     }, {
-        "config": 'APMrover2/config.h',
+        "config": 'Rover/config.h',
         "autotest_target": "build.Rover",
         "target_binary": "bin/ardurover",
         "reverse-deps": {

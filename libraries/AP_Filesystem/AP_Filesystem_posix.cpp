@@ -17,6 +17,7 @@
  */
 #include "AP_Filesystem.h"
 #include <AP_HAL/AP_HAL.h>
+#include <AP_Vehicle/AP_Vehicle_Type.h>
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL || CONFIG_HAL_BOARD == HAL_BOARD_LINUX
 
@@ -34,7 +35,7 @@ extern const AP_HAL::HAL& hal;
  */
 static const char *map_filename(const char *fname)
 {
-#if CONFIG_HAL_BOARD == HAL_BOARD_SITL
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL && !APM_BUILD_TYPE(APM_BUILD_Replay)
     // on SITL only allow paths under subdirectory. Users can still
     // escape with .. if they want to
     if (strcmp(fname, "/") == 0) {
@@ -60,12 +61,12 @@ int AP_Filesystem_Posix::close(int fd)
     return ::close(fd);
 }
 
-ssize_t AP_Filesystem_Posix::read(int fd, void *buf, size_t count)
+int32_t AP_Filesystem_Posix::read(int fd, void *buf, uint32_t count)
 {
     return ::read(fd, buf, count);
 }
 
-ssize_t AP_Filesystem_Posix::write(int fd, const void *buf, size_t count)
+int32_t AP_Filesystem_Posix::write(int fd, const void *buf, uint32_t count)
 {
     return ::write(fd, buf, count);
 }
@@ -75,7 +76,7 @@ int AP_Filesystem_Posix::fsync(int fd)
     return ::fsync(fd);
 }
 
-off_t AP_Filesystem_Posix::lseek(int fd, off_t offset, int seek_from)
+int32_t AP_Filesystem_Posix::lseek(int fd, int32_t offset, int seek_from)
 {
     return ::lseek(fd, offset, seek_from);
 }
@@ -146,7 +147,7 @@ int64_t AP_Filesystem_Posix::disk_space(const char *path)
 /*
   set mtime on a file
  */
-bool AP_Filesystem_Posix::set_mtime(const char *filename, const time_t mtime_sec)
+bool AP_Filesystem_Posix::set_mtime(const char *filename, const uint32_t mtime_sec)
 {
     filename = map_filename(filename);
     struct utimbuf times {};

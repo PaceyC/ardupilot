@@ -37,6 +37,9 @@ function run_autotest() {
     BVEHICLE="$2"
     RVEHICLE="$3"
 
+    # report on what cpu's we have for later log review if needed
+    cat /proc/cpuinfo
+
     if [ $mavproxy_installed -eq 0 ]; then
         echo "Installing MAVProxy"
         pushd /tmp
@@ -47,7 +50,7 @@ function run_autotest() {
         popd
         mavproxy_installed=1
         # now uninstall the version of pymavlink pulled in by MAVProxy deps:
-        pip uninstall -y pymavlink
+        python -m pip uninstall -y pymavlink
     fi
     if [ $pymavlink_installed -eq 0 ]; then
         echo "Installing pymavlink"
@@ -74,12 +77,56 @@ function run_autotest() {
 
 for t in $CI_BUILD_TARGET; do
     # special case for SITL testing in CI
+    if [ "$t" == "sitltest-heli" ]; then
+        run_autotest "Heli" "build.Helicopter" "test.Helicopter"
+        continue
+    fi
+    # travis-ci
     if [ "$t" == "sitltest-copter-tests1" ]; then
         run_autotest "Copter" "build.Copter" "test.CopterTests1"
         continue
     fi
+    #github actions ci
+    if [ "$t" == "sitltest-copter-tests1a" ]; then
+        run_autotest "Copter" "build.Copter" "test.CopterTests1a"
+        continue
+    fi
+    if [ "$t" == "sitltest-copter-tests1b" ]; then
+        run_autotest "Copter" "build.Copter" "test.CopterTests1b"
+        continue
+    fi
+    if [ "$t" == "sitltest-copter-tests1c" ]; then
+        run_autotest "Copter" "build.Copter" "test.CopterTests1c"
+        continue
+    fi
+    if [ "$t" == "sitltest-copter-tests1d" ]; then
+        run_autotest "Copter" "build.Copter" "test.CopterTests1d"
+        continue
+    fi
+    if [ "$t" == "sitltest-copter-tests1e" ]; then
+        run_autotest "Copter" "build.Copter" "test.CopterTests1e"
+        continue
+    fi
+
+    # travis-ci
     if [ "$t" == "sitltest-copter-tests2" ]; then
         run_autotest "Copter" "build.Copter" "test.CopterTests2"
+        continue
+    fi
+    #github actions ci
+    if [ "$t" == "sitltest-copter-tests2a" ]; then
+        run_autotest "Copter" "build.Copter" "test.CopterTests2a"
+        continue
+    fi
+    if [ "$t" == "sitltest-copter-tests2b" ]; then
+        run_autotest "Copter" "build.Copter" "test.CopterTests2b"
+        continue
+    fi
+    if [ "$t" == "sitltest-can" ]; then
+        echo "Building SITL Periph GPS"
+        $waf configure --board sitl
+        $waf copter
+        run_autotest "Copter" "build.SITLPeriphGPS" "test.CAN"
         continue
     fi
     if [ "$t" == "sitltest-plane" ]; then
@@ -139,7 +186,7 @@ for t in $CI_BUILD_TARGET; do
         $waf AP_Periph
         continue
     fi
-    
+
     if [ "$t" == "CubeOrange-bootloader" ]; then
         echo "Building CubeOrange bootloader"
         $waf configure --board CubeOrange --bootloader
@@ -150,9 +197,19 @@ for t in $CI_BUILD_TARGET; do
 
     if [ "$t" == "stm32f7" ]; then
         echo "Building mRoX21-777/"
-        $waf configure --board mRoX21-777
+        $waf configure --Werror --board mRoX21-777
         $waf clean
         $waf plane
+
+        # test bi-directional dshot build
+        echo "Building KakuteF7Mini"
+        $waf configure --Werror --board KakuteF7Mini
+
+        # test bi-directional dshot build and smallest flash
+        echo "Building KakuteF7"
+        $waf configure --Werror --board KakuteF7
+        $waf clean
+        $waf copter
         continue
     fi
 
@@ -171,12 +228,30 @@ for t in $CI_BUILD_TARGET; do
         $waf plane
         continue
     fi
-    
+
     if [ "$t" == "iofirmware" ]; then
         echo "Building iofirmware"
         $waf configure --board iomcu
         $waf clean
         $waf iofirmware
+        continue
+    fi
+
+    if [ "$t" == "navigator" ]; then
+        echo "Building navigator"
+        $waf configure --board navigator --toolchain=arm-linux-musleabihf
+        $waf sub --static
+        continue
+    fi
+
+    if [ "$t" == "replay" ]; then
+        echo "Building replay"
+        $waf configure --board sitl --debug --disable-scripting
+        $waf replay
+        echo "Building AP_DAL standalone test"
+        $waf configure --board sitl --debug --disable-scripting --no-gcs
+        $waf --target tools/AP_DAL_Standalone
+        $waf clean
         continue
     fi
 
@@ -197,13 +272,14 @@ for t in $CI_BUILD_TARGET; do
         $waf all
         ccache -s && ccache -z
 
-        if [[ $t == linux ]]; then
+        if [[ $t == "linux" ]]; then
             $waf check
         fi
+        continue
     fi
 done
 
-python Tools/autotest/param_metadata/param_parse.py --vehicle APMrover2
+python Tools/autotest/param_metadata/param_parse.py --vehicle Rover
 python Tools/autotest/param_metadata/param_parse.py --vehicle AntennaTracker
 python Tools/autotest/param_metadata/param_parse.py --vehicle ArduCopter
 python Tools/autotest/param_metadata/param_parse.py --vehicle ArduPlane

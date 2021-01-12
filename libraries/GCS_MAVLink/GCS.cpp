@@ -39,11 +39,23 @@ void GCS::init()
 }
 
 /*
+ * returns a mask of channels that statustexts should be sent to
+ */
+uint8_t GCS::statustext_send_channel_mask() const
+{
+    uint8_t ret = 0;
+    ret |= GCS_MAVLINK::active_channel_mask();
+    ret |= GCS_MAVLINK::streaming_channel_mask();
+    ret &= ~GCS_MAVLINK::private_channel_mask();
+    return ret;
+}
+
+/*
   send a text message to all GCS
  */
 void GCS::send_textv(MAV_SEVERITY severity, const char *fmt, va_list arg_list)
 {
-    uint8_t mask = GCS_MAVLINK::active_channel_mask() | GCS_MAVLINK::streaming_channel_mask();
+    uint8_t mask = statustext_send_channel_mask();
     if (!update_send_has_been_called) {
         // we have not yet initialised the streaming-channel-mask,
         // which is done as part of the update() call.  So just send
@@ -69,6 +81,9 @@ void GCS::send_to_active_channels(uint32_t msgid, const char *pkt)
     }
     for (uint8_t i=0; i<num_gcs(); i++) {
         GCS_MAVLINK &c = *chan(i);
+        if (c.is_private()) {
+            continue;
+        }
         if (!c.is_active()) {
             continue;
         }
@@ -95,7 +110,7 @@ void GCS::send_named_float(const char *name, float value) const
 /*
   install an alternative protocol handler. This allows another
   protocol to take over the link if MAVLink goes idle. It is used to
-  allow for the AP_BLHeli pass-thru protocols to run on hal.uartA
+  allow for the AP_BLHeli pass-thru protocols to run on hal.serial(0)
  */
 bool GCS::install_alternative_protocol(mavlink_channel_t c, GCS_MAVLINK::protocol_handler_fn_t handler)
 {
@@ -214,6 +229,17 @@ void GCS::update_sensor_status_flags()
         }
     }
 
+#if HAL_VISUALODOM_ENABLED
+    const AP_VisualOdom *visual_odom = AP::visualodom();
+    if (visual_odom && visual_odom->enabled()) {
+        control_sensors_present |= MAV_SYS_STATUS_SENSOR_VISION_POSITION;
+        control_sensors_enabled |= MAV_SYS_STATUS_SENSOR_VISION_POSITION;
+        if (visual_odom->healthy()) {
+            control_sensors_health |= MAV_SYS_STATUS_SENSOR_VISION_POSITION;
+        }
+    }
+#endif
+
     // give GCS status of prearm checks. This is enabled if any arming checks are enabled.
     // it is healthy if armed or checks are passing
     control_sensors_present |= MAV_SYS_STATUS_PREARM_CHECK;
@@ -244,4 +270,9 @@ bool GCS::out_of_time() const
     }
 
     return true;
+}
+
+void gcs_out_of_space_to_send_count(mavlink_channel_t chan)
+{
+    gcs().chan(chan)->out_of_space_to_send();
 }

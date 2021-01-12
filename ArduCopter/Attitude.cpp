@@ -38,7 +38,6 @@ float Copter::get_pilot_desired_yaw_rate(int16_t stick_angle)
 //  called at 100hz
 void Copter::update_throttle_hover()
 {
-#if FRAME_CONFIG != HELI_FRAME
     // if not armed or landed exit
     if (!motors->armed() || ap.land_complete) {
         return;
@@ -57,23 +56,15 @@ void Copter::update_throttle_hover()
     // get throttle output
     float throttle = motors->get_throttle();
 
-    // calc average throttle if we are in a level hover
+    // calc average throttle if we are in a level hover.  accounts for heli hover roll trim
     if (throttle > 0.0f && fabsf(inertial_nav.get_velocity_z()) < 60 &&
-        labs(ahrs.roll_sensor) < 500 && labs(ahrs.pitch_sensor) < 500) {
+        labs(ahrs.roll_sensor-attitude_control->get_roll_trim_cd()) < 500 && labs(ahrs.pitch_sensor) < 500) {
         // Can we set the time constant automatically
         motors->update_throttle_hover(0.01f);
 #if HAL_GYROFFT_ENABLED
         gyro_fft.update_freq_hover(0.01f, motors->get_throttle_out());
 #endif
     }
-#endif
-}
-
-// set_throttle_takeoff - allows parents to tell throttle controller we are taking off so I terms can be cleared
-void Copter::set_throttle_takeoff()
-{
-    // tell position controller to reset alt target and reset I terms
-    pos_control->init_takeoff();
 }
 
 // get_pilot_desired_climb_rate - transform pilot's throttle input to climb rate in cm/s
@@ -123,17 +114,6 @@ float Copter::get_pilot_desired_climb_rate(float throttle_control)
 float Copter::get_non_takeoff_throttle()
 {
     return MAX(0,motors->get_throttle_hover()/2.0f);
-}
-
-// get target climb rate reduced to avoid obstacles and altitude fence
-float Copter::get_avoidance_adjusted_climbrate(float target_rate)
-{
-#if AC_AVOID_ENABLED == ENABLED
-    avoid.adjust_velocity_z(pos_control->get_pos_z_p().kP(), pos_control->get_max_accel_z(), target_rate, G_Dt);
-    return target_rate;
-#else
-    return target_rate;
-#endif
 }
 
 // set_accel_throttle_I_from_pilot_throttle - smoothes transition from pilot controlled throttle to autopilot throttle

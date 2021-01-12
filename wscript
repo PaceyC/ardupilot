@@ -76,6 +76,11 @@ def options(opt):
         default=False,
         help='Configure as debug variant.')
 
+    g.add_option('--Werror',
+        action='store_true',
+        default=False,
+        help='build with -Werror.')
+    
     g.add_option('--toolchain',
         action='store',
         default=None,
@@ -91,6 +96,11 @@ def options(opt):
         default=False,
         help='enable OS level asserts.')
 
+    g.add_option('--enable-malloc-guard',
+        action='store_true',
+        default=False,
+        help='enable malloc guard regions.')
+    
     g.add_option('--bootloader',
         action='store_true',
         default=False,
@@ -130,6 +140,10 @@ submodules at specific revisions.
                  default=False,
                  help="Disable onboard scripting engine")
 
+    g.add_option('--no-gcs', action='store_true',
+                 default=False,
+                 help="Disable GCS code")
+    
     g.add_option('--scripting-checks', action='store_true',
                  default=True,
                  help="Enable runtime scripting sanity checks")
@@ -179,10 +193,22 @@ configuration in order to save typing.
                  default=False,
                  help="Enable SFML graphics library")
 
+    g.add_option('--enable-sfml-joystick', action='store_true',
+                 default=False,
+                 help="Enable SFML joystick input library")
+
     g.add_option('--enable-sfml-audio', action='store_true',
                  default=False,
                  help="Enable SFML audio library")
 
+    g.add_option('--osd', action='store_true',
+                 default=False,
+                 help="Enable OSD support")
+
+    g.add_option('--osd-fonts', action='store_true',
+                 default=False,
+                 help="Enable OSD support with fonts")
+    
     g.add_option('--sitl-osd', action='store_true',
                  default=False,
                  help="Enable SITL OSD")
@@ -199,6 +225,16 @@ configuration in order to save typing.
         action='store_true',
         default=False,
         help='Configure for building SITL with flash storage emulation.')
+
+    g.add_option('--disable-ekf2',
+        action='store_true',
+        default=False,
+        help='Configure without EKF2.')
+
+    g.add_option('--disable-ekf3',
+        action='store_true',
+        default=False,
+        help='Configure without EKF3.')
     
     g.add_option('--static',
         action='store_true',
@@ -246,6 +282,7 @@ def configure(cfg):
     cfg.env.DEBUG = cfg.options.debug
     cfg.env.ENABLE_ASSERTS = cfg.options.enable_asserts
     cfg.env.BOOTLOADER = cfg.options.bootloader
+    cfg.env.ENABLE_MALLOC_GUARD = cfg.options.enable_malloc_guard
 
     cfg.env.OPTIONS = cfg.options.__dict__
 
@@ -303,6 +340,9 @@ def configure(cfg):
         cfg.end_msg('disabled', color='YELLOW')
     else:
         cfg.end_msg('enabled')
+        cfg.recurse('libraries/AP_Scripting')
+
+    cfg.recurse('libraries/AP_GPS')
 
     cfg.start_msg('Scripting runtime checks')
     if cfg.options.scripting_checks:
@@ -337,6 +377,9 @@ def configure(cfg):
     cfg.define('_GNU_SOURCE', 1)
 
     cfg.write_config_header(os.path.join(cfg.variant, 'ap_config.h'))
+
+    # add in generated flags
+    cfg.env.CXXFLAGS += ['-include', 'ap_config.h']
 
     _collect_autoconfig_files(cfg)
 
@@ -392,7 +435,7 @@ def _build_dynamic_sources(bld):
             ],
             )
 
-    if bld.get_board().with_uavcan or bld.env.HAL_WITH_UAVCAN==True:
+    if bld.get_board().with_can or bld.env.HAL_NUM_CAN_IFACES:
         bld(
             features='uavcangen',
             source=bld.srcnode.ant_glob('modules/uavcan/dsdl/* libraries/AP_UAVCAN/dsdl/*', dir=True, src=False),
@@ -474,6 +517,8 @@ def _build_recursion(bld):
         if bld.env.PERIPH_FW:
             dirs_to_recurse.append('Tools/AP_Periph')
 
+    dirs_to_recurse.append('libraries/AP_Scripting')
+
     for p in hal_dirs_patterns:
         dirs_to_recurse += collect_dirs_to_recurse(
             bld,
@@ -519,7 +564,7 @@ def build(bld):
 
     _load_pre_build(bld)
 
-    if bld.get_board().with_uavcan:
+    if bld.get_board().with_can:
         bld.env.AP_LIBRARIES_OBJECTS_KW['use'] += ['uavcan']
 
     _build_cmd_tweaks(bld)
@@ -549,7 +594,7 @@ ardupilotwaf.build_command('check-all',
     doc='shortcut for `waf check --alltests`',
 )
 
-for name in ('antennatracker', 'copter', 'heli', 'plane', 'rover', 'sub', 'bootloader','iofirmware','AP_Periph'):
+for name in ('antennatracker', 'copter', 'heli', 'plane', 'rover', 'sub', 'bootloader','iofirmware','AP_Periph','replay'):
     ardupilotwaf.build_command(name,
         program_group_list=name,
         doc='builds %s programs' % name,

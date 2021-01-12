@@ -20,6 +20,9 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
+#if defined(ARDUPILOT_BUILD)
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
 
 static int luaB_print (lua_State *L) {
   int n = lua_gettop(L);  /* number of arguments */
@@ -471,7 +474,7 @@ static const luaL_Reg base_funcs[] = {
 //  {"rawget", luaB_rawget},
 //  {"rawset", luaB_rawset},
 //  {"select", luaB_select},
-//  {"setmetatable", luaB_setmetatable},
+  {"setmetatable", luaB_setmetatable},
   {"tonumber", luaB_tonumber},
   {"tostring", luaB_tostring},
   {"type", luaB_type},

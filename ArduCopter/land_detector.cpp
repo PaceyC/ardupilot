@@ -47,7 +47,7 @@ void Copter::update_land_detector()
     } else if (ap.land_complete) {
 #if FRAME_CONFIG == HELI_FRAME
         // if rotor speed and collective pitch are high then clear landing flag
-        if (motors->get_throttle() > get_non_takeoff_throttle() && !motors->limit.throttle_lower && motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED) {
+        if (motors->get_takeoff_collective() && motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED) {
 #else
         // if throttle output is high then clear landing flag
         if (motors->get_throttle() > get_non_takeoff_throttle()) {
@@ -60,8 +60,8 @@ void Copter::update_land_detector()
     } else {
 
 #if FRAME_CONFIG == HELI_FRAME
-        // check that collective pitch is on lower limit (should be constrained by LAND_COL_MIN)
-        bool motor_at_lower_limit = motors->limit.throttle_lower;
+        // check that collective pitch is below mid collective (zero thrust) position
+        bool motor_at_lower_limit = (motors->get_below_mid_collective() && fabsf(ahrs.get_roll()) < M_PI/2.0f);
 #else
         // check that the average throttle output is near minimum (less than 12.5% hover throttle)
         bool motor_at_lower_limit = motors->limit.throttle_lower && attitude_control->is_throttle_mix_min();
@@ -151,7 +151,7 @@ void Copter::update_throttle_mix()
 
     if (flightmode->has_manual_throttle()) {
         // manual throttle
-        if(channel_throttle->get_control_in() <= 0) {
+        if (channel_throttle->get_control_in() <= 0 || air_mode == AirMode::AIRMODE_DISABLED) {
             attitude_control->set_throttle_mix_min();
         } else {
             attitude_control->set_throttle_mix_man();
@@ -173,7 +173,10 @@ void Copter::update_throttle_mix()
         // check for requested decent
         bool descent_not_demanded = pos_control->get_desired_velocity().z >= 0.0f;
 
-        if (large_angle_request || large_angle_error || accel_moving || descent_not_demanded) {
+        // check if landing
+        const bool landing = flightmode->is_landing();
+
+        if ((large_angle_request && !landing) || large_angle_error || accel_moving || descent_not_demanded) {
             attitude_control->set_throttle_mix_max(pos_control->get_vel_z_control_ratio());
         } else {
             attitude_control->set_throttle_mix_min();
