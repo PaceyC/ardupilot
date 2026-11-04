@@ -14,6 +14,10 @@
  */
 #pragma once
 
+#include "AP_Compass_config.h"
+
+#if AP_COMPASS_RM3100_ENABLED
+
 #include <AP_Common/AP_Common.h>
 #include <AP_HAL/AP_HAL.h>
 #include <AP_HAL/Device.h>
@@ -23,7 +27,10 @@
 #include "AP_Compass_Backend.h"
 
 #ifndef HAL_COMPASS_RM3100_I2C_ADDR
-# define HAL_COMPASS_RM3100_I2C_ADDR 0x20
+# define HAL_COMPASS_RM3100_I2C_ADDR1 0x20
+# define HAL_COMPASS_RM3100_I2C_ADDR2 0x21
+# define HAL_COMPASS_RM3100_I2C_ADDR3 0x22
+# define HAL_COMPASS_RM3100_I2C_ADDR4 0x23
 #endif
 
 class AP_Compass_RM3100 : public AP_Compass_Backend
@@ -32,8 +39,6 @@ public:
     static AP_Compass_Backend *probe(AP_HAL::OwnPtr<AP_HAL::Device> dev,
                                      bool force_external,
                                      enum Rotation rotation);
-
-    void read() override;
 
     static constexpr const char *name = "RM3100";
 
@@ -50,8 +55,9 @@ private:
     bool init();
     void timer();
 
-    uint8_t compass_instance;
     bool force_external;
     enum Rotation rotation;
     float _scaler = 1.0;
 };
+
+#endif  // AP_COMPASS_RM3100_ENABLED

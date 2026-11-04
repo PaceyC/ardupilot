@@ -16,17 +16,16 @@
   handle disk IO for terrain code
  */
 
-#include <AP_HAL/AP_HAL.h>
-#include <AP_Common/AP_Common.h>
-#include <AP_Math/AP_Math.h>
-#include <GCS_MAVLink/GCS_MAVLink.h>
-#include <GCS_MAVLink/GCS.h>
-#include <stdio.h>
 #include "AP_Terrain.h"
 
 #if AP_TERRAIN_AVAILABLE
 
 #include <AP_Filesystem/AP_Filesystem.h>
+#include <AP_HAL/AP_HAL.h>
+#include <AP_Common/AP_Common.h>
+#include <AP_Math/AP_Math.h>
+#include <stdio.h>
+#include <GCS_MAVLink/GCS.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -35,9 +34,9 @@ extern const AP_HAL::HAL& hal;
  */
 void AP_Terrain::check_disk_read(void)
 {
-    for (uint16_t i=0; i<cache_size; i++) {
-        if (cache[i].state == GRID_CACHE_DISKWAIT) {
-            disk_block.block = cache[i].grid;
+    for (struct grid_cache *curr = cache; curr != nullptr; curr = curr->next) {
+        if (curr->state == GRID_CACHE_DISKWAIT) {
+            disk_block.block = curr->grid;
             disk_io_state = DiskIoWaitRead;
             return;
         }
@@ -49,9 +48,9 @@ void AP_Terrain::check_disk_read(void)
  */
 void AP_Terrain::check_disk_write(void)
 {
-    for (uint16_t i=0; i<cache_size; i++) {
-        if (cache[i].state == GRID_CACHE_DIRTY) {
-            disk_block.block = cache[i].grid;
+    for (struct grid_cache *curr = cache; curr != nullptr; curr = curr->next) {
+        if (curr->state == GRID_CACHE_DIRTY) {
+            disk_block.block = curr->grid;
             disk_io_state = DiskIoWaitWrite;
             return;
         }
@@ -63,7 +62,7 @@ void AP_Terrain::check_disk_write(void)
  */
 void AP_Terrain::schedule_disk_io(void)
 {
-    if (enable == 0 || !allocate()) {
+    if (!active() || diskless()) {
         return;
     }
 
@@ -84,14 +83,14 @@ void AP_Terrain::schedule_disk_io(void)
         
     case DiskIoDoneRead: {
         // a read has completed
-        int16_t cache_idx = find_io_idx(GRID_CACHE_DISKWAIT);
-        if (cache_idx != -1) {
+        struct grid_cache *entry = find_io_cache(GRID_CACHE_DISKWAIT);
+        if (entry != nullptr) {
             if (disk_block.block.bitmap != 0) {
                 // when bitmap is zero we read an empty block
-                cache[cache_idx].grid = disk_block.block;
+                entry->grid = disk_block.block;
             }
-            cache[cache_idx].state = GRID_CACHE_VALID;
-            cache[cache_idx].last_access_ms = AP_HAL::millis();
+            entry->state = GRID_CACHE_VALID;
+            entry->last_access_ms = AP_HAL::millis();
         }
         disk_io_state = DiskIoIdle;
         break;
@@ -99,11 +98,11 @@ void AP_Terrain::schedule_disk_io(void)
 
     case DiskIoDoneWrite: {
         // a write has completed
-        int16_t cache_idx = find_io_idx(GRID_CACHE_DIRTY);
-        if (cache_idx != -1) {
-            if (cache[cache_idx].grid.bitmap == disk_block.block.bitmap) {
+        struct grid_cache *entry = find_io_cache(GRID_CACHE_DIRTY);
+        if (entry != nullptr) {
+            if (entry->grid.bitmap == disk_block.block.bitmap) {
                 // only mark valid if more grids haven't been added
-                cache[cache_idx].state = GRID_CACHE_VALID;
+                entry->state = GRID_CACHE_VALID;
             }
         }
         disk_io_state = DiskIoIdle;
@@ -137,6 +136,9 @@ All file operations are done by the IO thread.
  */
 void AP_Terrain::open_file(void)
 {
+    if (diskless()) {
+        return;
+    }
     struct grid_block &block = disk_block.block;
     if (fd != -1 && 
         block.lat_degrees == file_lat_degrees &&
@@ -164,11 +166,22 @@ void AP_Terrain::open_file(void)
         io_failure = true;
         return;        
     }
-    snprintf(p, 13, "/%c%02u%c%03u.DAT",
+    // our fancy templatified MIN macro get gcc 9.3.0 all confused; it
+    // thinks there are more digits than there can be so says there's
+    // a buffer overflow in the snprintf.  Constrain it long-form:
+    uint32_t lat_tmp = abs((int32_t)block.lat_degrees);
+    if (lat_tmp > 99U) {
+        lat_tmp = 99U;
+    }
+    uint32_t lon_tmp = abs((int32_t)block.lon_degrees);
+    if (lon_tmp > 999U) {
+        lon_tmp = 999;
+    }
+    hal.util->snprintf(p, 13, "/%c%02u%c%03u.DAT",
              block.lat_degrees<0?'S':'N',
-             (unsigned)MIN(abs((int32_t)block.lat_degrees), 99),
+             (unsigned)lat_tmp,
              block.lon_degrees<0?'W':'E',
-             (unsigned)MIN(abs((int32_t)block.lon_degrees), 999));
+             (unsigned)lon_tmp);
 
     // create directory if need be
     if (!directory_created) {
@@ -206,25 +219,31 @@ void AP_Terrain::open_file(void)
 }
 
 /*
+  work out how many blocks needed in a stride for a given location
+ */
+uint32_t AP_Terrain::east_blocks(struct grid_block &block) const
+{
+    Location loc1, loc2;
+    loc1.lat = block.lat_degrees*10*1000*1000L;
+    loc1.lng = block.lon_degrees*10*1000*1000L;
+    loc2.lat = loc1.lat;
+    loc2.lng = (block.lon_degrees+1)*10*1000*1000L;
+
+    // shift another two blocks east to ensure room is available
+    loc2.offset(0, 2*grid_spacing*TERRAIN_GRID_BLOCK_SIZE_Y);
+    const Vector2f offset = loc1.get_distance_NE(loc2);
+    return offset.y / (grid_spacing*TERRAIN_GRID_BLOCK_SPACING_Y);
+}
+
+/*
   seek to the right offset for disk_block
  */
 void AP_Terrain::seek_offset(void)
 {
     struct grid_block &block = disk_block.block;
     // work out how many longitude blocks there are at this latitude
-    Location loc1, loc2;
-    loc1.lat = block.lat_degrees*10*1000*1000L;
-    loc1.lng = block.lon_degrees*10*1000*1000L;
-    loc2.lat = block.lat_degrees*10*1000*1000L;
-    loc2.lng = (block.lon_degrees+1)*10*1000*1000L;
-
-    // shift another two blocks east to ensure room is available
-    loc2.offset(0, 2*grid_spacing*TERRAIN_GRID_BLOCK_SIZE_Y);
-    const Vector2f offset = loc1.get_distance_NE(loc2);
-    uint16_t east_blocks = offset.y / (grid_spacing*TERRAIN_GRID_BLOCK_SIZE_Y);
-
-    uint32_t file_offset = (east_blocks * block.grid_idx_x + 
-                            block.grid_idx_y) * sizeof(union grid_io_block);
+    uint32_t blocknum = east_blocks(block) * block.grid_idx_x + block.grid_idx_y;
+    uint32_t file_offset = blocknum * sizeof(union grid_io_block);
     if (AP::FS().lseek(fd, file_offset, SEEK_SET) != (off_t)file_offset) {
 #if TERRAIN_DEBUG
         hal.console->printf("Seek %lu failed - %s\n",
@@ -242,7 +261,7 @@ void AP_Terrain::seek_offset(void)
 void AP_Terrain::write_block(void)
 {
     seek_offset();
-    if (io_failure) {
+    if (io_failure || diskless()) {
         return;
     }
 
@@ -275,7 +294,7 @@ void AP_Terrain::write_block(void)
 void AP_Terrain::read_block(void)
 {
     seek_offset();
-    if (io_failure) {
+    if (io_failure || diskless()) {
         return;
     }
     int32_t lat = disk_block.block.lat;
@@ -283,17 +302,23 @@ void AP_Terrain::read_block(void)
 
     ssize_t ret = AP::FS().read(fd, &disk_block, sizeof(disk_block));
     if (ret != sizeof(disk_block) || 
-        disk_block.block.lat != lat || 
-        disk_block.block.lon != lon ||
+        !TERRAIN_LATLON_EQUAL(disk_block.block.lat,lat) ||
+        !TERRAIN_LATLON_EQUAL(disk_block.block.lon,lon) ||
         disk_block.block.bitmap == 0 ||
         disk_block.block.spacing != grid_spacing ||
         disk_block.block.version != TERRAIN_GRID_FORMAT_VERSION ||
         disk_block.block.crc != get_block_crc(disk_block.block)) {
 #if TERRAIN_DEBUG
-        printf("read empty block at %ld %ld ret=%d\n",
+        printf("read empty block at %ld %ld ret=%d (%ld %ld %u 0x%08lx) 0x%04x:0x%04x\n",
                (long)lat,
                (long)lon,
-               (int)ret);
+               (int)ret,
+               (long)disk_block.block.lat,
+               (long)disk_block.block.lon,
+               (unsigned)disk_block.block.spacing,
+               (unsigned long)disk_block.block.bitmap,
+               (unsigned)disk_block.block.crc,
+               (unsigned)get_block_crc(disk_block.block));
 #endif
         // a short read or bad data is not an IO failure, just a
         // missing block on disk
@@ -309,6 +334,19 @@ void AP_Terrain::read_block(void)
                (int)ret,
                (unsigned long long)disk_block.block.bitmap);
 #endif
+        if (disk_block.block.version_minor < TERRAIN_VERSION_MINOR_MIN) {
+            /*
+              this triggers a pre-arm warning to prompt the user to
+              download new terrain data
+             */
+#if HAL_GCS_ENABLED
+            if (!found_old_data && hal.util->get_soft_armed()) {
+                // in-flight warning for GCS operator
+                gcs().send_text(MAV_SEVERITY_WARNING, "terrain data expired, possible errors");
+            }
+#endif
+            found_old_data = true;
+        }
     }
     disk_io_state = DiskIoDoneRead;
 }
@@ -319,10 +357,16 @@ void AP_Terrain::read_block(void)
 void AP_Terrain::io_timer(void)
 {
     if (io_failure) {
-        // don't keep trying io, so we don't thrash the filesystem
-        // code while flying
+        // retry the IO every 5s to allow for remount of sdcard
+        uint32_t now = AP_HAL::millis();
+        if (now - last_retry_ms > 5000) {
+            io_failure = false;
+            last_retry_ms = now;
+        }
         return;
     }
+
+    update_reference_offset();
 
     switch (disk_io_state) {
     case DiskIoIdle:

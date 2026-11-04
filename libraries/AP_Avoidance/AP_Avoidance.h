@@ -25,13 +25,11 @@
   based on AP_ADSB,  Tom Pittenger, November 2015
 */
 
-#include <AP_ADSB/AP_ADSB.h>
+#include "AP_Avoidance_config.h"
 
-// F_RCVRY possible parameter values
-#define AP_AVOIDANCE_RECOVERY_REMAIN_IN_AVOID_ADSB                  0
-#define AP_AVOIDANCE_RECOVERY_RESUME_PREVIOUS_FLIGHTMODE            1
-#define AP_AVOIDANCE_RECOVERY_RTL                                   2
-#define AP_AVOIDANCE_RECOVERY_RESUME_IF_AUTO_ELSE_LOITER            3
+#if AP_ADSB_AVOIDANCE_ENABLED
+
+#include <AP_ADSB/AP_ADSB.h>
 
 #define AP_AVOIDANCE_STATE_RECOVERY_TIME_MS                 2000    // we will not downgrade state any faster than this (2 seconds)
 
@@ -44,13 +42,20 @@ public:
     AP_Avoidance(class AP_ADSB &adsb);
 
     /* Do not allow copies */
-    AP_Avoidance(const AP_Avoidance &other) = delete;
-    AP_Avoidance &operator=(const AP_Avoidance&) = delete;
+    CLASS_NO_COPY(AP_Avoidance);
 
     // get singleton instance
     static AP_Avoidance *get_singleton() {
         return _singleton;
     }
+
+    // F_RCVRY possible parameter values:
+    enum class RecoveryAction {
+        REMAIN_IN_AVOID_ADSB       = 0,
+        RESUME_PREVIOUS_FLIGHTMODE = 1,
+        RTL                        = 2,
+        RESUME_IF_AUTO_ELSE_LOITER = 3,
+    };
 
     // obstacle class to hold latest information for a known obstacles
     class Obstacle {
@@ -60,14 +65,14 @@ public:
         uint32_t timestamp_ms;
 
         Location _location;
-        Vector3f _velocity;
+        Vector3f _velocity_ned_ms;
 
         // fields relating to this being a threat.  These would be the reason to have a separate list of threats:
         MAV_COLLISION_THREAT_LEVEL threat_level;
-        float closest_approach_xy; // metres
-        float closest_approach_z; // metres
-        float time_to_closest_approach; // seconds, 3D approach
-        float distance_to_closest_approach; // metres, 3D
+        float closest_approach_ne_m; // metres
+        float closest_approach_d_m; // metres
+        float time_to_closest_approach_s; // seconds, 3D approach
+        float distance_to_closest_approach_ned_m; // metres, 3D
         uint32_t last_gcs_report_time; // millis
     };
 
@@ -77,7 +82,7 @@ public:
                       const MAV_COLLISION_SRC src,
                       uint32_t src_id,
                       const Location &loc,
-                      const Vector3f &vel_ned);
+                      const Vector3f &vel_ned_ms);
 
     void add_obstacle(uint32_t obstacle_timestamp_ms,
                       const MAV_COLLISION_SRC src,
@@ -91,8 +96,8 @@ public:
     void update();
 
     // enable or disable avoidance
-    void enable() { _enabled = true; };
-    void disable() { _enabled = false; };
+    void enable() { _enabled.set(true); };
+    void disable() { _enabled.set(false); };
 
     // current overall threat level
     MAV_COLLISION_THREAT_LEVEL current_threat_level() const;
@@ -114,7 +119,7 @@ protected:
 
     // recover after all threats have cleared.  child classes must override this method
     // recovery_action is from F_RCVRY parameter
-    virtual void handle_recovery(uint8_t recovery_action) = 0;
+    virtual void handle_recovery(RecoveryAction recovery_action) = 0;
 
     uint32_t _last_state_change_ms = 0;
     MAV_COLLISION_THREAT_LEVEL _threat_level = MAV_COLLISION_THREAT_LEVEL_NONE;
@@ -136,24 +141,23 @@ protected:
     bool get_destination_perpendicular(const AP_Avoidance::Obstacle *obstacle, Vector3f &newdest_neu, const float wp_speed_xy, const float wp_speed_z, const uint8_t _minimum_avoid_height);
 
     // get unit vector away from the nearest obstacle
-    bool get_vector_perpendicular(const AP_Avoidance::Obstacle *obstacle, Vector3f &vec_neu);
+    bool get_vector_perpendicular(const AP_Avoidance::Obstacle *obstacle, Vector3f &vec_neu_unit) const;
 
     // helper functions to calculate destination to get us away from obstacle
     // Note: v1 is NED
-    static Vector3f perpendicular_xyz(const Location &p1, const Vector3f &v1, const Location &p2);
-    static Vector2f perpendicular_xy(const Location &p1, const Vector3f &v1, const Location &p2);
+    static Vector3f perpendicular_neu_m(const Location &p1, const Vector3f &v1, const Location &p2);
 
 private:
 
     void send_collision_all(const AP_Avoidance::Obstacle &threat, MAV_COLLISION_ACTION behaviour) const;
 
     // constants
-    const uint32_t MAX_OBSTACLE_AGE_MS = 5000;      // obstacles that have not been heard from for 5 seconds are removed from the list
+    static constexpr uint32_t MAX_OBSTACLE_AGE_MS = 5000;      // obstacles that have not been heard from for 5 seconds are removed from the list
     const static uint8_t _gcs_notify_interval = 1; // seconds
 
     // speed below which we will fly directly away from a threat
     // rather than perpendicular to its velocity:
-    const uint8_t _low_velocity_threshold = 1; // meters/second
+    static constexpr uint8_t _low_velocity_threshold = 1; // meters/second
 
     // check to see if we are initialised (and possibly do initialisation)
     bool check_startup();
@@ -195,15 +199,15 @@ private:
 
     AP_Int8     _fail_action;
     AP_Int8     _fail_recovery;
-    AP_Int8     _fail_time_horizon;
-    AP_Int16    _fail_distance_xy;
-    AP_Int16    _fail_distance_z;
-    AP_Int16    _fail_altitude_minimum;
+    AP_Int8     _fail_time_horizon_s;
+    AP_Int16    _fail_distance_ne_m;
+    AP_Int16    _fail_distance_d_m;
+    AP_Int16    _fail_altitude_min_m;
 
     AP_Int8     _warn_action;
-    AP_Int8     _warn_time_horizon;
-    AP_Float    _warn_distance_xy;
-    AP_Float    _warn_distance_z;
+    AP_Int8     _warn_time_horizon_s;
+    AP_Float    _warn_distance_ne_m;
+    AP_Float    _warn_distance_d_m;
 
     // multi-thread support for avoidance
     HAL_Semaphore _rsem;
@@ -211,13 +215,13 @@ private:
     static AP_Avoidance *_singleton;
 };
 
-float closest_approach_xy(const Location &my_loc,
+float closest_approach_NE_m(const Location &my_loc,
                           const Vector3f &my_vel,
                           const Location &obstacle_loc,
                           const Vector3f &obstacle_vel,
                           uint8_t time_horizon);
 
-float closest_approach_z(const Location &my_loc,
+float closest_approach_D_m(const Location &my_loc,
                          const Vector3f &my_vel,
                          const Location &obstacle_loc,
                          const Vector3f &obstacle_vel,
@@ -227,3 +231,5 @@ float closest_approach_z(const Location &my_loc,
 namespace AP {
     AP_Avoidance *ap_avoidance();
 };
+
+#endif  // AP_ADSB_AVOIDANCE_ENABLED

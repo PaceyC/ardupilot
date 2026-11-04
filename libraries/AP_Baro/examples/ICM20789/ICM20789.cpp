@@ -6,14 +6,15 @@
 #include <AP_HAL/I2CDevice.h>
 #include <AP_Baro/AP_Baro.h>
 #include <AP_BoardConfig/AP_BoardConfig.h>
-#include <utility>
 #include <stdio.h>
 
 const AP_HAL::HAL& hal = AP_HAL::get_HAL();
 
-static AP_HAL::OwnPtr<AP_HAL::Device> i2c_dev;
-static AP_HAL::OwnPtr<AP_HAL::Device> spi_dev;
-static AP_HAL::OwnPtr<AP_HAL::Device> dev;
+#ifdef HAL_INS_MPU60x0_NAME
+static AP_HAL::Device *i2c_dev;
+static AP_HAL::Device *spi_dev;
+static AP_HAL::Device *dev;
+#endif  // defined(HAL_INS_MPU60x0_NAME)
 
 // SPI registers
 #define MPUREG_WHOAMI                           0x75
@@ -184,6 +185,7 @@ static void spi_init()
 }
 #endif
 
+#ifdef HAL_INS_MPU60x0_NAME
 /*
   send a 16 bit command to the baro
  */
@@ -217,7 +219,6 @@ static bool read_calibration_data(void)
     return true;
 }
 
-#ifdef HAL_INS_MPU60x0_NAME
 // initialise baro on i2c
 static void i2c_init(void)
 {
@@ -268,12 +269,12 @@ void setup()
     hal.scheduler->delay(1000);
 
 #ifdef HAL_INS_MPU60x0_NAME
-    spi_dev = std::move(hal.spi->get_device(HAL_INS_MPU60x0_NAME));
+    spi_dev = hal.spi->get_device_ptr(HAL_INS_MPU60x0_NAME);
 
     spi_dev->get_semaphore()->take_blocking();
 
-    i2c_dev = std::move(hal.i2c_mgr->get_device(1, 0x63));
-    dev = std::move(hal.i2c_mgr->get_device(1, 0x29));
+    i2c_dev = hal.i2c_mgr->get_device_ptr(1, 0x63);
+    dev = hal.i2c_mgr->get_device_ptr(1, 0x29);
 
     while (true) {
         spi_init();
